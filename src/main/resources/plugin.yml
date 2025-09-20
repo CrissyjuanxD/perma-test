@@ -1,22 +1,23 @@
 name: MobCapManager
-version: 1.0.0
+version: 2.0.0
 main: tech.sebazcrc.mobcap.MobCapPlugin
 api-version: 1.15
 authors: [SebazCRC]
-description: Sistema avanzado de gestión de MobCap basado en Permadeath
+description: Sistema avanzado de gestión de MobCap con spawn personalizado y optimización automática
 website: https://github.com/SebazCRC
+softdepend: [Permadeath]
 
 commands:
   mobcap:
     description: Comando principal para gestionar MobCap
-    usage: /mobcap <info|set|double|reset|reload>
+    usage: /mobcap <info|setbase|doble|triple|normal|habilitar|deshabilitar|reset|reload|mob>
     permission: mobcap.use
-    aliases: [mc]
+    aliases: [mc, mobcapmanager]
   mobcapinfo:
     description: Muestra información detallada del MobCap
     usage: /mobcapinfo
     permission: mobcap.use
-    aliases: [mcinfo]
+    aliases: [mcinfo, mobcapstatus]
 
 permissions:
   mobcap.use:

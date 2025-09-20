@@ -3,10 +3,12 @@ package tech.sebazcrc.mobcap.commands;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.entity.EntityType;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class MobCapTabCompleter implements TabCompleter {
 
@@ -15,7 +17,7 @@ public class MobCapTabCompleter implements TabCompleter {
         List<String> completions = new ArrayList<>();
 
         if (command.getName().equalsIgnoreCase("mobcapinfo")) {
-            return completions; // No hay argumentos para mobcapinfo
+            return completions;
         }
 
         if (!command.getName().equalsIgnoreCase("mobcap")) {
@@ -23,26 +25,42 @@ public class MobCapTabCompleter implements TabCompleter {
         }
 
         if (args.length == 1) {
-            List<String> subcommands = Arrays.asList("info", "set", "double", "reset", "reload");
+            List<String> subcommands = Arrays.asList("info", "setbase", "doble", "triple", "normal", 
+                "habilitar", "deshabilitar", "reset", "reload", "mob");
+            
             for (String subcommand : subcommands) {
                 if (subcommand.toLowerCase().startsWith(args[0].toLowerCase())) {
-                    if (!subcommand.equals("set") && !subcommand.equals("double") && 
-                        !subcommand.equals("reset") && !subcommand.equals("reload") || 
-                        sender.hasPermission("mobcap.admin")) {
-                        completions.add(subcommand);
-                    } else if (subcommand.equals("info")) {
+                    if (subcommand.equals("info") || sender.hasPermission("mobcap.admin")) {
                         completions.add(subcommand);
                     }
                 }
             }
         } else if (args.length == 2) {
-            if (args[0].equalsIgnoreCase("set") && sender.hasPermission("mobcap.admin")) {
-                completions.addAll(Arrays.asList("70", "140", "200", "280"));
-            } else if (args[0].equalsIgnoreCase("double") && sender.hasPermission("mobcap.admin")) {
-                completions.addAll(Arrays.asList("on", "off", "true", "false", "enable", "disable"));
+            if (args[0].equalsIgnoreCase("setbase") && sender.hasPermission("mobcap.admin")) {
+                completions.addAll(Arrays.asList("70", "140", "200", "280", "350"));
+            } else if (args[0].equalsIgnoreCase("mob") && sender.hasPermission("mobcap.admin")) {
+                // Agregar tipos de mobs hostiles
+                completions.addAll(getHostileMobTypes());
+            }
+        } else if (args.length == 3) {
+            if (args[0].equalsIgnoreCase("mob") && sender.hasPermission("mobcap.admin")) {
+                completions.addAll(Arrays.asList("vanilla", "custom"));
             }
         }
 
-        return completions;
+        return completions.stream()
+                .filter(completion -> completion.toLowerCase().startsWith(args[args.length - 1].toLowerCase()))
+                .collect(Collectors.toList());
+    }
+    
+    private List<String> getHostileMobTypes() {
+        return Arrays.asList(
+            "zombie", "skeleton", "creeper", "spider", "enderman", "witch",
+            "slime", "magma_cube", "ghast", "blaze", "wither_skeleton",
+            "zombified_piglin", "piglin", "piglin_brute", "hoglin", "zoglin",
+            "drowned", "husk", "stray", "phantom", "shulker", "guardian",
+            "elder_guardian", "silverfish", "endermite", "vex", "vindicator",
+            "pillager", "ravager", "evoker", "cave_spider"
+        );
     }
 }

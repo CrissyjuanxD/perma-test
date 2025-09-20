@@ -5,15 +5,24 @@ import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import tech.sebazcrc.mobcap.MobCapInfo;
 import tech.sebazcrc.mobcap.MobCapManager;
+import tech.sebazcrc.mobcap.MobCapMultiplier;
+import tech.sebazcrc.mobcap.config.MobCapConfig;
+import tech.sebazcrc.mobcap.optimization.PerformanceData;
+import tech.sebazcrc.mobcap.spawn.SpawnMode;
+
+import java.util.Map;
 
 public class MobCapCommand implements CommandExecutor {
     private final MobCapManager mobCapManager;
+    private final MobCapConfig config;
 
-    public MobCapCommand(MobCapManager mobCapManager) {
+    public MobCapCommand(MobCapManager mobCapManager, MobCapConfig config) {
         this.mobCapManager = mobCapManager;
+        this.config = config;
     }
 
     @Override
@@ -34,14 +43,26 @@ public class MobCapCommand implements CommandExecutor {
         switch (args[0].toLowerCase()) {
             case "info":
                 return handleMobCapInfo(sender);
-            case "set":
-                return handleSetMobCap(sender, args);
-            case "double":
-                return handleDoubleMobCap(sender, args);
+            case "setbase":
+                return handleSetBaseMobCap(sender, args);
+            case "doble":
+                return handleSetMultiplier(sender, MobCapMultiplier.DOUBLE);
+            case "triple":
+                return handleSetMultiplier(sender, MobCapMultiplier.TRIPLE);
+            case "normal":
+                return handleSetMultiplier(sender, MobCapMultiplier.NORMAL);
+            case "habilitar":
+            case "enable":
+                return handleToggleSystem(sender, true);
+            case "deshabilitar":
+            case "disable":
+                return handleToggleSystem(sender, false);
             case "reset":
                 return handleResetMobCap(sender);
             case "reload":
                 return handleReload(sender);
+            case "mob":
+                return handleMobConfig(sender, args);
             default:
                 sendHelp(sender);
                 return true;
@@ -50,15 +71,22 @@ public class MobCapCommand implements CommandExecutor {
 
     private boolean handleMobCapInfo(CommandSender sender) {
         MobCapInfo info = mobCapManager.getMobCapInfo();
+        PerformanceData perf = info.getPerformanceData();
         
         sender.sendMessage("§e§l=== MobCap Information ===");
-        sender.sendMessage("§7Base MobCap: §a" + info.getBaseMobCap());
-        sender.sendMessage("§7Double MobCap: " + (info.isDoubleMobCapEnabled() ? "§aEnabled" : "§cDisabled"));
-        sender.sendMessage("§7Effective MobCap: §b" + info.getEffectiveMobCap());
-        sender.sendMessage("§7Online Players: §e" + info.getPlayerCount());
-        sender.sendMessage("§7Optimization Active: " + (info.isOptimizationActive() ? "§aYes" : "§cNo"));
+        sender.sendMessage("§7Estado: " + (info.isEnabled() ? "§aHabilitado" : "§cDeshabilitado"));
+        sender.sendMessage("§7MobCap Base: §a" + info.getBaseMobCap());
+        sender.sendMessage("§7Multiplicador: §b" + info.getMultiplier().getDisplayName() + " §7(x" + info.getMultiplier().getMultiplier() + ")");
+        sender.sendMessage("§7MobCap Efectivo: §b" + info.getEffectiveMobCap());
+        sender.sendMessage("§7Jugadores Online: §e" + info.getPlayerCount());
+        sender.sendMessage("§7Optimización Activa: " + (info.isOptimizationActive() ? "§aActiva" : "§cInactiva"));
         sender.sendMessage("");
-        sender.sendMessage("§e§lWorld Details:");
+        sender.sendMessage("§e§lRendimiento del Servidor:");
+        sender.sendMessage("§7TPS: " + perf.getFormattedTps());
+        sender.sendMessage("§7Memoria: " + perf.getFormattedMemory());
+        sender.sendMessage("§7CPU: " + perf.getFormattedCpuUsage());
+        sender.sendMessage("");
+        sender.sendMessage("§e§lDetalles por Mundo:");
         
         for (World world : Bukkit.getWorlds()) {
             String worldName = world.getName();
@@ -72,14 +100,14 @@ public class MobCapCommand implements CommandExecutor {
         return true;
     }
 
-    private boolean handleSetMobCap(CommandSender sender, String[] args) {
+    private boolean handleSetBaseMobCap(CommandSender sender, String[] args) {
         if (!sender.hasPermission("mobcap.admin")) {
             sender.sendMessage("§cNo tienes permiso para usar este comando.");
             return true;
         }
 
         if (args.length < 2) {
-            sender.sendMessage("§cUso: /mobcap set <número>");
+            sender.sendMessage("§cUso: /mobcap setbase <número>");
             return true;
         }
 
@@ -104,38 +132,34 @@ public class MobCapCommand implements CommandExecutor {
         return true;
     }
 
-    private boolean handleDoubleMobCap(CommandSender sender, String[] args) {
+    private boolean handleSetMultiplier(CommandSender sender, MobCapMultiplier multiplier) {
         if (!sender.hasPermission("mobcap.admin")) {
             sender.sendMessage("§cNo tienes permiso para usar este comando.");
             return true;
         }
 
-        if (args.length < 2) {
-            boolean currentStatus = mobCapManager.isDoubleMobCapEnabled();
-            mobCapManager.setDoubleMobCap(!currentStatus);
-            String newStatus = !currentStatus ? "activado" : "desactivado";
-            sender.sendMessage("§eDoble MobCap " + newStatus + ".");
-        } else {
-            String action = args[1].toLowerCase();
-            boolean enable;
-            
-            if (action.equals("on") || action.equals("true") || action.equals("enable")) {
-                enable = true;
-            } else if (action.equals("off") || action.equals("false") || action.equals("disable")) {
-                enable = false;
-            } else {
-                sender.sendMessage("§cUso: /mobcap double [on/off]");
-                return true;
-            }
-
-            mobCapManager.setDoubleMobCap(enable);
-            String status = enable ? "activado" : "desactivado";
-            sender.sendMessage("§eDoble MobCap " + status + ".");
+        mobCapManager.setMultiplier(multiplier);
+        sender.sendMessage("§eMobCap " + multiplier.getDisplayName() + " activado.");
+        
+        if (sender instanceof Player) {
+            Bukkit.getLogger().info(sender.getName() + " set mob cap multiplier to: " + multiplier.getDisplayName());
         }
 
+        return true;
+    }
+
+    private boolean handleToggleSystem(CommandSender sender, boolean enable) {
+        if (!sender.hasPermission("mobcap.admin")) {
+            sender.sendMessage("§cNo tienes permiso para usar este comando.");
+            return true;
+        }
+
+        mobCapManager.setEnabled(enable);
+        String status = enable ? "habilitado" : "deshabilitado";
+        sender.sendMessage("§eSistema de MobCap " + status + ".");
+        
         if (sender instanceof Player) {
-            Bukkit.getLogger().info(sender.getName() + " toggled double mob cap: " + 
-                mobCapManager.isDoubleMobCapEnabled());
+            Bukkit.getLogger().info(sender.getName() + " " + (enable ? "enabled" : "disabled") + " mob cap system");
         }
 
         return true;
@@ -163,10 +187,35 @@ public class MobCapCommand implements CommandExecutor {
             return true;
         }
 
-        // Reaplicar configuración actual
-        mobCapManager.setBaseMobCap(mobCapManager.getBaseMobCap());
+        mobCapManager.reload();
         sender.sendMessage("§aMobCap recargado correctamente.");
         
+        return true;
+    }
+
+    private boolean handleMobConfig(CommandSender sender, String[] args) {
+        if (!sender.hasPermission("mobcap.admin")) {
+            sender.sendMessage("§cNo tienes permiso para usar este comando.");
+            return true;
+        }
+
+        if (args.length < 3) {
+            sender.sendMessage("§cUso: /mobcap mob <tipo> <vanilla/custom>");
+            sender.sendMessage("§eEjemplo: /mobcap mob zombie custom");
+            return true;
+        }
+
+        try {
+            EntityType entityType = EntityType.valueOf(args[1].toUpperCase());
+            SpawnMode mode = SpawnMode.fromString(args[2]);
+            
+            config.setMobSpawnMode(entityType, mode);
+            sender.sendMessage("§aMob §b" + entityType.name() + " §aconfigurado como: §e" + mode.getDescription());
+            
+        } catch (IllegalArgumentException e) {
+            sender.sendMessage("§cTipo de mob inválido: " + args[1]);
+        }
+
         return true;
     }
 
@@ -176,10 +225,15 @@ public class MobCapCommand implements CommandExecutor {
         sender.sendMessage("§7/mobcap info §f- Alias de mobcapinfo");
         
         if (sender.hasPermission("mobcap.admin")) {
-            sender.sendMessage("§7/mobcap set <número> §f- Establece el MobCap base");
-            sender.sendMessage("§7/mobcap double [on/off] §f- Activa/desactiva doble MobCap");
+            sender.sendMessage("§7/mobcap setbase <número> §f- Establece el MobCap base");
+            sender.sendMessage("§7/mobcap doble §f- Duplica la MobCap");
+            sender.sendMessage("§7/mobcap triple §f- Triplica la MobCap");
+            sender.sendMessage("§7/mobcap normal §f- MobCap normal (x1)");
+            sender.sendMessage("§7/mobcap habilitar §f- Habilita el sistema");
+            sender.sendMessage("§7/mobcap deshabilitar §f- Deshabilita el sistema");
             sender.sendMessage("§7/mobcap reset §f- Restablece valores originales");
             sender.sendMessage("§7/mobcap reload §f- Recarga la configuración");
+            sender.sendMessage("§7/mobcap mob <tipo> <vanilla/custom> §f- Configura spawn de mob");
         }
     }
 }

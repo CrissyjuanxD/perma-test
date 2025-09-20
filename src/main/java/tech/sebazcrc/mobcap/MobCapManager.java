@@ -4,6 +4,9 @@ import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
+import tech.sebazcrc.mobcap.config.MobCapConfig;
+import tech.sebazcrc.mobcap.optimization.MobCapOptimizer;
+import tech.sebazcrc.mobcap.optimization.PerformanceMonitor;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -12,26 +15,31 @@ import java.util.logging.Level;
 public class MobCapManager {
     private static MobCapManager instance;
     private final JavaPlugin plugin;
+    private final MobCapConfig config;
     private final Map<String, Integer> originalLimits;
     private final Map<String, Integer> currentLimits;
     private final MobCapOptimizer optimizer;
+    private final PerformanceMonitor performanceMonitor;
     
     private int baseMobCap = 70;
-    private boolean doubleMobCapEnabled = false;
+    private MobCapMultiplier multiplier = MobCapMultiplier.NORMAL;
+    private boolean enabled = true;
     private boolean isInitialized = false;
     private BukkitTask optimizationTask;
 
-    private MobCapManager(JavaPlugin plugin) {
+    private MobCapManager(JavaPlugin plugin, MobCapConfig config) {
         this.plugin = plugin;
+        this.config = config;
         this.originalLimits = new ConcurrentHashMap<>();
         this.currentLimits = new ConcurrentHashMap<>();
-        this.optimizer = new MobCapOptimizer(plugin);
+        this.optimizer = new MobCapOptimizer(plugin, config);
+        this.performanceMonitor = new PerformanceMonitor();
         initialize();
     }
 
-    public static MobCapManager getInstance(JavaPlugin plugin) {
+    public static MobCapManager getInstance(JavaPlugin plugin, MobCapConfig config) {
         if (instance == null) {
-            instance = new MobCapManager(plugin);
+            instance = new MobCapManager(plugin, config);
         }
         return instance;
     }
@@ -44,6 +52,11 @@ public class MobCapManager {
             return;
         }
 
+        // Cargar configuración
+        this.baseMobCap = config.getBaseMobCap();
+        this.multiplier = config.getMultiplier();
+        this.enabled = config.isEnabled();
+
         // Guardar límites originales
         for (World world : Bukkit.getWorlds()) {
             int originalLimit = world.getMonsterSpawnLimit();
@@ -51,8 +64,11 @@ public class MobCapManager {
             currentLimits.put(world.getName(), originalLimit);
         }
 
-        // Iniciar tarea de optimización
-        startOptimizationTask();
+        // Aplicar configuración inicial si está habilitado
+        if (enabled) {
+            applyMobCapToWorlds();
+            startOptimizationTask();
+        }
         
         isInitialized = true;
         plugin.getLogger().info("MobCapManager initialized successfully");
@@ -63,20 +79,24 @@ public class MobCapManager {
             optimizationTask.cancel();
         }
 
-        // Tarea que se ejecuta cada 30 segundos para optimizar
+        if (!config.isOptimizationEnabled()) {
+            return;
+        }
+
+        // Tarea de optimización cada 30 segundos
         optimizationTask = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, () -> {
-            if (shouldOptimize()) {
+            if (enabled && shouldOptimize()) {
                 optimizer.optimizeMobCap();
             }
-        }, 600L, 600L); // 30 segundos inicial, luego cada 30 segundos
+        }, 600L, 600L);
     }
 
     private boolean shouldOptimize() {
         int playerCount = Bukkit.getOnlinePlayers().size();
         int currentCap = getCurrentEffectiveMobCap();
         
-        // Optimizar si hay más de 60 jugadores y mob cap es alto
-        return playerCount > 60 && currentCap >= 140;
+        return playerCount > config.getOptimizationPlayerThreshold() && 
+               currentCap >= config.getOptimizationMobCapThreshold();
     }
 
     public synchronized void setBaseMobCap(int mobCapValue) {
@@ -89,27 +109,70 @@ public class MobCapManager {
         }
 
         this.baseMobCap = mobCapValue;
-        applyMobCapToWorlds();
+        config.setBaseMobCap(mobCapValue);
+        
+        if (enabled) {
+            applyMobCapToWorlds();
+        }
         
         plugin.getLogger().info("Base mob cap updated to: " + mobCapValue);
     }
 
-    public synchronized void setDoubleMobCap(boolean enabled) {
-        if (this.doubleMobCapEnabled == enabled) {
+    public synchronized void setMultiplier(MobCapMultiplier multiplier) {
+        if (this.multiplier == multiplier) {
             return;
         }
 
-        this.doubleMobCapEnabled = enabled;
-        applyMobCapToWorlds();
+        this.multiplier = multiplier;
+        config.setMultiplier(multiplier);
         
-        String status = enabled ? "enabled" : "disabled";
-        plugin.getLogger().info("Double mob cap " + status);
-        
-        // Mensaje similar al de Permadeath
         if (enabled) {
-            Bukkit.broadcastMessage("§e[MobCap] §eDoblando la mob-cap en todos los mundos.");
+            applyMobCapToWorlds();
+        }
+        
+        String status = multiplier.getDisplayName();
+        plugin.getLogger().info("Mob cap multiplier set to: " + status);
+        
+        // Mensaje al servidor
+        String message = "§e[MobCap] §eMobCap " + status + " activado.";
+        Bukkit.broadcastMessage(message);
+    }
+
+    public synchronized void setEnabled(boolean enabled) {
+        if (this.enabled == enabled) {
+            return;
+        }
+
+        this.enabled = enabled;
+        config.setEnabled(enabled);
+        
+        if (enabled) {
+            applyMobCapToWorlds();
+            startOptimizationTask();
+            Bukkit.broadcastMessage("§e[MobCap] §aSistema de MobCap habilitado.");
         } else {
-            Bukkit.broadcastMessage("§e[MobCap] §eRestaurando mob-cap normal en todos los mundos.");
+            resetToOriginalLimits();
+            if (optimizationTask != null) {
+                optimizationTask.cancel();
+            }
+            Bukkit.broadcastMessage("§e[MobCap] §cSistema de MobCap deshabilitado.");
+        }
+        
+        plugin.getLogger().info("MobCap system " + (enabled ? "enabled" : "disabled"));
+    }
+
+    private void resetToOriginalLimits() {
+        if (!Bukkit.isPrimaryThread()) {
+            Bukkit.getScheduler().runTask(plugin, this::resetToOriginalLimits);
+            return;
+        }
+
+        for (World world : Bukkit.getWorlds()) {
+            Integer originalLimit = originalLimits.get(world.getName());
+            if (originalLimit != null) {
+                world.setMonsterSpawnLimit(originalLimit);
+                currentLimits.put(world.getName(), originalLimit);
+            }
         }
     }
 
@@ -139,10 +202,11 @@ public class MobCapManager {
     }
 
     public int getCurrentEffectiveMobCap() {
-        int effectiveCap = baseMobCap;
-        if (doubleMobCapEnabled) {
-            effectiveCap = baseMobCap * 2;
+        if (!enabled) {
+            return 70; // Valor vanilla por defecto
         }
+        
+        int effectiveCap = baseMobCap * multiplier.getMultiplier();
         
         // Aplicar optimización si es necesario
         if (shouldOptimize()) {
@@ -158,45 +222,61 @@ public class MobCapManager {
         int originalLimit = world.getMonsterSpawnLimit();
         originalLimits.put(world.getName(), originalLimit);
 
-        int effectiveMobCap = getCurrentEffectiveMobCap();
-        world.setMonsterSpawnLimit(effectiveMobCap);
-        currentLimits.put(world.getName(), effectiveMobCap);
-        
-        plugin.getLogger().info("Applied mob cap to new world: " + world.getName() + 
-                " (limit: " + effectiveMobCap + ")");
+        if (enabled) {
+            int effectiveMobCap = getCurrentEffectiveMobCap();
+            world.setMonsterSpawnLimit(effectiveMobCap);
+            currentLimits.put(world.getName(), effectiveMobCap);
+            
+            plugin.getLogger().info("Applied mob cap to new world: " + world.getName() + 
+                    " (limit: " + effectiveMobCap + ")");
+        }
     }
 
     public void resetMobCap() {
         if (!isInitialized) return;
 
-        if (!Bukkit.isPrimaryThread()) {
-            Bukkit.getScheduler().runTask(plugin, this::resetMobCap);
-            return;
-        }
+        resetToOriginalLimits();
+        
+        baseMobCap = 70;
+        multiplier = MobCapMultiplier.NORMAL;
+        enabled = true;
+        
+        config.resetToDefaults();
+        
+        plugin.getLogger().info("Mob cap reset to original values");
+    }
 
-        for (World world : Bukkit.getWorlds()) {
-            Integer originalLimit = originalLimits.get(world.getName());
-            if (originalLimit != null) {
-                world.setMonsterSpawnLimit(originalLimit);
-                currentLimits.put(world.getName(), originalLimit);
+    public void reload() {
+        config.reload();
+        
+        this.baseMobCap = config.getBaseMobCap();
+        this.multiplier = config.getMultiplier();
+        this.enabled = config.isEnabled();
+        
+        if (enabled) {
+            applyMobCapToWorlds();
+            startOptimizationTask();
+        } else {
+            resetToOriginalLimits();
+            if (optimizationTask != null) {
+                optimizationTask.cancel();
             }
         }
         
-        baseMobCap = 70;
-        doubleMobCapEnabled = false;
-        
-        plugin.getLogger().info("Mob cap reset to original values");
+        plugin.getLogger().info("MobCap configuration reloaded");
     }
 
     public MobCapInfo getMobCapInfo() {
         return new MobCapInfo(
             baseMobCap,
-            doubleMobCapEnabled,
+            multiplier,
             getCurrentEffectiveMobCap(),
             originalLimits,
             currentLimits,
             Bukkit.getOnlinePlayers().size(),
-            shouldOptimize()
+            shouldOptimize(),
+            enabled,
+            performanceMonitor.getPerformanceData()
         );
     }
 
@@ -204,7 +284,7 @@ public class MobCapManager {
         if (optimizationTask != null) {
             optimizationTask.cancel();
         }
-        resetMobCap();
+        resetToOriginalLimits();
         instance = null;
         plugin.getLogger().info("MobCapManager shutdown completed");
     }
@@ -214,8 +294,12 @@ public class MobCapManager {
         return baseMobCap;
     }
 
-    public boolean isDoubleMobCapEnabled() {
-        return doubleMobCapEnabled;
+    public MobCapMultiplier getMultiplier() {
+        return multiplier;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
     }
 
     public int getOriginalLimit(String worldName) {
@@ -224,5 +308,9 @@ public class MobCapManager {
 
     public boolean isInitialized() {
         return isInitialized;
+    }
+    
+    public PerformanceMonitor getPerformanceMonitor() {
+        return performanceMonitor;
     }
 }

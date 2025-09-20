@@ -1,28 +1,30 @@
-package tech.sebazcrc.mobcap;
+package tech.sebazcrc.mobcap.optimization;
 
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Monster;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import tech.sebazcrc.mobcap.config.MobCapConfig;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class MobCapOptimizer {
     private final JavaPlugin plugin;
-    private static final int HIGH_PLAYER_THRESHOLD = 60;
-    private static final int HIGH_MOBCAP_THRESHOLD = 140;
-    private static final double OPTIMIZATION_FACTOR = 0.75; // Reducir al 75%
+    private final MobCapConfig config;
 
-    public MobCapOptimizer(JavaPlugin plugin) {
+    public MobCapOptimizer(JavaPlugin plugin, MobCapConfig config) {
         this.plugin = plugin;
+        this.config = config;
     }
 
     public int getOptimizedMobCap(int originalMobCap) {
         int playerCount = Bukkit.getOnlinePlayers().size();
         
-        if (playerCount <= HIGH_PLAYER_THRESHOLD || originalMobCap < HIGH_MOBCAP_THRESHOLD) {
+        if (playerCount <= config.getOptimizationPlayerThreshold() || 
+            originalMobCap < config.getOptimizationMobCapThreshold()) {
             return originalMobCap;
         }
 
@@ -31,7 +33,7 @@ public class MobCapOptimizer {
         int optimizedCap = (int) (originalMobCap * optimizationFactor);
         
         // Asegurar un mínimo razonable
-        int minimumCap = Math.max(70, originalMobCap / 3);
+        int minimumCap = Math.max(70, (int) (originalMobCap * config.getOptimizationMinimumPercentage()));
         optimizedCap = Math.max(optimizedCap, minimumCap);
         
         plugin.getLogger().info(String.format(
@@ -43,17 +45,21 @@ public class MobCapOptimizer {
     }
 
     private double calculateOptimizationFactor(int playerCount) {
-        if (playerCount <= HIGH_PLAYER_THRESHOLD) {
+        int threshold = config.getOptimizationPlayerThreshold();
+        if (playerCount <= threshold) {
             return 1.0;
         }
         
-        // Reducción gradual: más jugadores = más reducción
-        // 60 jugadores = 100%, 80 jugadores = 75%, 100+ jugadores = 60%
-        double reductionPerPlayer = 0.01; // 1% por jugador adicional
-        int excessPlayers = playerCount - HIGH_PLAYER_THRESHOLD;
-        double reduction = Math.min(0.4, excessPlayers * reductionPerPlayer); // Máximo 40% de reducción
+        // Reducción gradual basada en configuración
+        double reductionFactor = config.getOptimizationReductionFactor();
+        double minimumPercentage = config.getOptimizationMinimumPercentage();
         
-        return Math.max(0.6, 1.0 - reduction); // Mínimo 60% del valor original
+        // Calcular reducción progresiva
+        int excessPlayers = playerCount - threshold;
+        double reductionPerPlayer = (1.0 - minimumPercentage) / 40.0; // Reducción gradual hasta 40 jugadores extra
+        double reduction = Math.min(1.0 - minimumPercentage, excessPlayers * reductionPerPlayer);
+        
+        return Math.max(minimumPercentage, 1.0 - reduction);
     }
 
     public void optimizeMobCap() {
@@ -62,11 +68,11 @@ public class MobCapOptimizer {
                 int totalMobs = getTotalMobCount();
                 int playerCount = Bukkit.getOnlinePlayers().size();
                 
-                // Si hay demasiados mobs por jugador, aplicar limpieza suave
+                // Si hay demasiados mobs por jugador, aplicar limpieza
                 double mobsPerPlayer = playerCount > 0 ? (double) totalMobs / playerCount : totalMobs;
                 
-                if (mobsPerPlayer > 15) { // Más de 15 mobs por jugador
-                    performSoftMobCleanup();
+                if (mobsPerPlayer > 15) {
+                    performMobCleanup();
                 }
                 
             } catch (Exception e) {
@@ -89,36 +95,43 @@ public class MobCapOptimizer {
         return totalMobs.get();
     }
 
-    private void performSoftMobCleanup() {
+    private void performMobCleanup() {
         int removedMobs = 0;
+        int maxCleanup = config.getOptimizationMaxCleanupPerCycle();
+        int cleanupDistance = config.getOptimizationCleanupDistance();
         
         for (World world : Bukkit.getWorlds()) {
             for (Entity entity : world.getEntities()) {
-                if (entity instanceof Monster && !(entity instanceof LivingEntity && 
-                    ((LivingEntity) entity).getCustomName() != null)) {
+                if (entity instanceof Monster && 
+                    !(entity instanceof LivingEntity && ((LivingEntity) entity).getCustomName() != null)) {
                     
                     // Solo remover mobs que estén lejos de jugadores
-                    if (entity.getNearbyEntities(32, 32, 32).stream()
-                        .noneMatch(e -> e instanceof org.bukkit.entity.Player)) {
-                        
+                    boolean farFromPlayers = true;
+                    for (Player player : world.getPlayers()) {
+                        if (entity.getLocation().distance(player.getLocation()) < cleanupDistance) {
+                            farFromPlayers = false;
+                            break;
+                        }
+                    }
+                    
+                    if (farFromPlayers) {
                         entity.remove();
                         removedMobs++;
                         
-                        // Limitar la cantidad de mobs removidos por ciclo
-                        if (removedMobs >= 50) {
+                        if (removedMobs >= maxCleanup) {
                             break;
                         }
                     }
                 }
             }
             
-            if (removedMobs >= 50) {
+            if (removedMobs >= maxCleanup) {
                 break;
             }
         }
         
         if (removedMobs > 0) {
-            plugin.getLogger().info("Soft mob cleanup: removed " + removedMobs + " distant mobs");
+            plugin.getLogger().info("Mob cleanup: removed " + removedMobs + " distant mobs");
         }
     }
 }

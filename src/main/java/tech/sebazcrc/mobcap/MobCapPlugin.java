@@ -7,19 +7,28 @@ import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import tech.sebazcrc.mobcap.commands.MobCapCommand;
 import tech.sebazcrc.mobcap.commands.MobCapTabCompleter;
+import tech.sebazcrc.mobcap.config.MobCapConfig;
+import tech.sebazcrc.mobcap.spawn.CustomSpawnManager;
 
 import java.util.Objects;
 
 public class MobCapPlugin extends JavaPlugin implements Listener {
     private MobCapManager mobCapManager;
+    private MobCapConfig config;
+    private CustomSpawnManager spawnManager;
 
     @Override
     public void onEnable() {
-        // Inicializar el manager
-        mobCapManager = MobCapManager.getInstance(this);
+        // Crear configuración
+        saveDefaultConfig();
+        config = new MobCapConfig(this);
+        
+        // Inicializar managers
+        mobCapManager = MobCapManager.getInstance(this, config);
+        spawnManager = new CustomSpawnManager(this, config);
         
         // Registrar comandos
-        MobCapCommand commandExecutor = new MobCapCommand(mobCapManager);
+        MobCapCommand commandExecutor = new MobCapCommand(mobCapManager, config);
         MobCapTabCompleter tabCompleter = new MobCapTabCompleter();
         
         Objects.requireNonNull(getCommand("mobcap")).setExecutor(commandExecutor);
@@ -28,14 +37,16 @@ public class MobCapPlugin extends JavaPlugin implements Listener {
         
         // Registrar eventos
         Bukkit.getPluginManager().registerEvents(this, this);
+        Bukkit.getPluginManager().registerEvents(spawnManager, this);
         
         getLogger().info("MobCapPlugin enabled successfully!");
         
-        // Mensaje de inicio similar al de Permadeath
+        // Mensaje de inicio
         Bukkit.getConsoleSender().sendMessage("§f§m------------------------------------------");
         Bukkit.getConsoleSender().sendMessage("             §e§lMOBCAP MANAGER");
         Bukkit.getConsoleSender().sendMessage("     §7- Versión: §e" + getDescription().getVersion());
         Bukkit.getConsoleSender().sendMessage("     §7- Sistema de MobCap avanzado activado");
+        Bukkit.getConsoleSender().sendMessage("     §7- Spawn personalizado: §a" + (config.isCustomSpawnEnabled() ? "Activado" : "Desactivado"));
         Bukkit.getConsoleSender().sendMessage("§f§m------------------------------------------");
     }
 
@@ -56,14 +67,21 @@ public class MobCapPlugin extends JavaPlugin implements Listener {
     @EventHandler
     public void onWorldLoad(WorldLoadEvent event) {
         if (mobCapManager != null && mobCapManager.isInitialized()) {
-            // Aplicar mob cap a mundos recién cargados
             Bukkit.getScheduler().runTaskLater(this, () -> {
                 mobCapManager.handleNewWorld(event.getWorld());
-            }, 20L); // Esperar 1 segundo para que el mundo se cargue completamente
+            }, 20L);
         }
     }
 
     public MobCapManager getMobCapManager() {
         return mobCapManager;
+    }
+    
+    public MobCapConfig getMobCapConfig() {
+        return config;
+    }
+    
+    public CustomSpawnManager getSpawnManager() {
+        return spawnManager;
     }
 }
