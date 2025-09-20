@@ -1,13 +1,29 @@
-name: Permadeath
-version: 1.3
-main: tech.sebazcrc.permadeath.Main
-softdepend: [ WorldEdit ]
-load: STARTUP
+name: MobCapManager
+version: 1.0.0
+main: tech.sebazcrc.mobcap.MobCapPlugin
 api-version: 1.15
-authors: [ SebazCRC, vo1d_dev ]
-description: Recreación del Plugin "PermaDeath" de la serie de ElRichMC, este plugin no intenta reemplazar al original sino crear una copia similar para la comunidad.
+authors: [SebazCRC]
+description: Sistema avanzado de gestión de MobCap basado en Permadeath
 website: https://github.com/SebazCRC
+
 commands:
-  pdc:
-    description: Comando principal de Permadeath
-    aliase: permadeath
+  mobcap:
+    description: Comando principal para gestionar MobCap
+    usage: /mobcap <info|set|double|reset|reload>
+    permission: mobcap.use
+    aliases: [mc]
+  mobcapinfo:
+    description: Muestra información detallada del MobCap
+    usage: /mobcapinfo
+    permission: mobcap.use
+    aliases: [mcinfo]
+
+permissions:
+  mobcap.use:
+    description: Permite usar comandos básicos de MobCap
+    default: true
+  mobcap.admin:
+    description: Permite administrar la configuración de MobCap
+    default: op
+    children:
+      mobcap.use: true
